@@ -1,6 +1,5 @@
 # Share-Linux-clipboard-to-other-devices-without-cable
 
-# Clipboard Relay Project Guide
 
 ## What This Project Does
 
