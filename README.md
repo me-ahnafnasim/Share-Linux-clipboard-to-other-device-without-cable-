@@ -1,4 +1,4 @@
-# Share Linux Clipboard To Other Devices Without Cable
+# Share Linux Clipboard(image+text) To Other Devices Without Cable
 
 
 ## I Left the Samsung Ecosystem and Built My Own Linux-to-Android Clipboard Sharing Tool
