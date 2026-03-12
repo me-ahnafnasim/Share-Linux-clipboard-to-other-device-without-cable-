@@ -1,204 +1,181 @@
 # Share-Linux-clipboard-to-other-devices-without-cable
 
 
-## What This Project Does
+# I Left the Samsung Ecosystem and Built My Own Linux-to-Android Clipboard Sharing Tool
 
-This project lets you copy an image on a Linux laptop and open that same image on an Android phone over the same local Wi-Fi network.
+As a Samsung device user, I was deep inside the Samsung ecosystem. To be honest, I did not really enjoy it. On top of that, as a software developer, I work with different frameworks and often need to run projects locally. Over time, my PC started feeling slow, and recently I moved to Linux.
 
-The current implementation has two main parts:
+After moving to Linux, I missed one small but very useful feature: clipboard sharing between my laptop and phone, especially for both image and text. I searched for many apps, but I could not find a simple tool that directly shared clipboard images. Some tools can handle text, including KDE Connect in some cases, but I wanted something lightweight, local, and under my control.
 
-- A Linux Flask server that reads the current clipboard image from X11 or Wayland.
-- A mobile-friendly web client that opens on Android in Chrome and fetches the latest clipboard image.
+So I built my own solution. Today, I am sharing how you can do the same.
 
-When the clipboard contains an image, the server converts it to PNG and exposes it through HTTP. The Android side then opens the web interface and downloads or previews that image.
+## Step 1: How to use it
 
-## Motivation
+This project runs a small Flask server on Linux and lets your Android phone access it over local Wi‑Fi.
 
-The goal of this project is to make image transfer from Linux to Android lightweight and fast without:
+Start the project:
 
-- USB cables
-- cloud upload
-- messaging apps
-- desktop sync services
-- a custom Android APK as a hard requirement
-
-It is useful when you copy screenshots, design references, diagrams, or cropped images on your laptop and want them immediately on your phone.
-
-## Current Architecture
-
-### Linux Side
-
-The Linux server lives in [clipboard_server.py](/home/ahnaf-nasim/Pictures/git-pratice/apps/linux-clipboard-server/clipboard_server.py).
-
-It does the following:
-
-- detects whether the desktop session is Wayland or X11
-- reads clipboard image data using `wl-paste` or `xclip`
-- converts non-PNG clipboard images to PNG with Pillow
-- serves a built-in web UI on port `5000`
-- exposes `/api/image` and `/api/status`
-
-### Android Side
-
-The Android-facing web client can be used in two ways:
-
-- directly from the Flask server by opening `http://<laptop-ip>:5000`
-- from the standalone static client in [apps/android-web-client](/home/ahnaf-nasim/Pictures/git-pratice/apps/android-web-client)
-
-The web client lets the user:
-
-- fetch the latest clipboard image
-- preview it
-- download it
-- add the page to the home screen in Chrome
-
-## How To Start The Project
-
-### 1. Go to the Linux server folder
+From the below github link clone the repo in your own machine by using
+i) git clone https://github.com/me-ahnafnasim/Share-Linux-clipboard-to-other-device-without-cable-.git
+ii) move to the path where the clone files are by using cd or pwd command and replace (/home/ahnaf-nasim/Pictures/git-pratice/apps/linux-clipboard-server)
 
 ```bash
 cd /home/ahnaf-nasim/Pictures/git-pratice/apps/linux-clipboard-server
-```
-
-### 2. Install dependencies
-
-Run:
-
-```bash
-chmod +x setup.sh
+chmod +x setup.sh run_server.sh
 ./setup.sh
+systemctl --user enable --now clipboard-relay.service
 ```
 
-This sets up:
-
-- Python virtual environment
-- Flask
-- Pillow
-- clipboard tools for X11 and Wayland
-- firewall rule for port `5000` when supported
-
-### 3. Start the server
-
-Run:
-
-```bash
-./.venv/bin/python clipboard_server.py
-```
-
-If it starts correctly, you should see output similar to:
-
-```text
-Running on http://127.0.0.1:5000
-Running on http://<your-laptop-ip>:5000
-```
-
-### 4. Find the laptop IP address
-
-Run:
+Find your PC IP address:
 
 ```bash
 hostname -I
 ```
 
+Then open this on your Android phone:
+
+```text
+http://YOUR-PC-IP:5000
+```
+
+Now the flow is simple:
+- copy text or an image on your Linux PC
+- open the page on your phone
+- tap `Fetch Clipboard`
+- if the clipboard has an image, it shows the preview
+- if the clipboard has text, it shows the text
+
+## Step 2: Install it with `systemd`
+
+If you want the tool to keep working in the background, `systemd` is the best option.
+
+Use these commands:
+
+```bash
+cd /home/ahnaf-nasim/Pictures/git-pratice/apps/linux-clipboard-server
+chmod +x setup.sh run_server.sh
+./setup.sh
+mkdir -p ~/.config/systemd/user
+cp /home/ahnaf-nasim/Pictures/git-pratice/apps/linux-clipboard-server/clipboard-relay.service ~/.config/systemd/user/clipboard-relay.service
+systemctl --user daemon-reload
+systemctl --user enable --now clipboard-relay.service
+systemctl --user status clipboard-relay.service --no-pager
+```
+
+Why `systemd`:
+- it starts automatically
+- it keeps the server running in the background
+- it can restart the service if it fails
+
+The downside:
+- clipboard access on Linux can be tricky, especially on Wayland
+- a system-wide service may not be able to access the logged-in user clipboard correctly
+- in practice, a `systemctl --user` service works better for clipboard-based tools
+
+## Step 3: How to check logs and remove it
+
+To check service status:
+
+```bash
+systemctl --user status clipboard-relay.service --no-pager
+```
+
+To see live logs:
+
+```bash
+journalctl --user -u clipboard-relay.service -f
+```
+
+To restart the service after code changes:
+
+```bash
+systemctl --user restart clipboard-relay.service
+```
+
+To stop and remove it:
+
+```bash
+systemctl --user disable --now clipboard-relay.service
+rm ~/.config/systemd/user/clipboard-relay.service
+systemctl --user daemon-reload
+systemctl --user reset-failed
+```
+
+## Step 4: Common errors and how to fix them
+
+### `XDG_RUNTIME_DIR is invalid or not set`
+This usually happens when the service cannot access your Wayland session.
+
+Use a user `systemd` service and add the needed environment values.
+
+Open the service file:
+
+```bash
+nano ~/.config/systemd/user/clipboard-relay.service
+```
+
+Use this content:
+
+```ini
+[Unit]
+Description=Clipboard Relay Server
+After=graphical-session.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ahnaf-nasim/Pictures/git-pratice/apps/linux-clipboard-server
+ExecStart=/home/ahnaf-nasim/Pictures/git-pratice/apps/linux-clipboard-server/run_server.sh
+Restart=always
+RestartSec=3
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=WAYLAND_DISPLAY=wayland-0
+Environment=CLIPBOARD_SERVER_HOST=0.0.0.0
+Environment=CLIPBOARD_SERVER_PORT=5000
+Environment=CLIPBOARD_SERVER_USE_WAITRESS=1
+Environment=CLIPBOARD_SERVER_THREADS=4
+
+[Install]
+WantedBy=default.target
+```
+
+Then reload and restart:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user restart clipboard-relay.service
+journalctl --user -u clipboard-relay.service -f
+```
+
+You can confirm your values with:
+
+```bash
+echo $XDG_RUNTIME_DIR
+echo $WAYLAND_DISPLAY
+id -u
+```
+
+### `Failed to connect to a Wayland server`
+This is usually the same issue as above. The service is running outside the graphical user session. Running it with `systemctl --user` usually fixes it.
+
+### `Refused to connect`
+Check these:
+- the service is running
+- the phone and laptop are on the same Wi‑Fi
+- you are opening `http://YOUR-PC-IP:5000`
+- your firewall allows port `5000`
+
 Example:
-
-```text
-10.176.148.209
-```
-
-### 5. Open it on Android
-
-On the Android phone, open Chrome and go to:
-
-```text
-http://<your-laptop-ip>:5000
-```
-
-Example:
-
-```text
-http://10.176.148.209:5000
-```
-
-Important:
-
-- use `http://`, not `https://`
-- the phone and laptop must be on the same Wi-Fi network
-- the clipboard on Linux must contain an image, not text
-
-## Recommended Daily Workflow
-
-1. Copy an image on your Linux laptop.
-2. Make sure the Flask server is already running.
-3. Open the project URL on Android.
-4. Tap `Fetch Image`.
-5. Preview or download the image.
-
-## What Happens Internally
-
-When you tap `Fetch Image`:
-
-1. the browser calls `GET /api/image`
-2. the Flask server reads the Linux clipboard
-3. the clipboard image is converted to PNG if needed
-4. the image is returned with no-cache headers
-5. the Android browser displays the latest image
-
-## Important Notes
-
-- This is intended for local network use only.
-- Do not expose port `5000` to the public internet.
-- The Flask server is a development server, which is acceptable for local personal use but not for public deployment.
-- If Android shows `refused to connect`, the server is not running, the IP is wrong, or the firewall is blocking port `5000`.
-- If Flask logs a TLS or `Bad request version` error, Android is trying `https://` instead of `http://`.
-
-## Troubleshooting
-
-### Android cannot connect
-
-Check:
 
 ```bash
 sudo ufw allow 5000/tcp
-hostname -I
 ```
 
-Then open:
+### Clipboard shows nothing
+Make sure your PC clipboard really contains text or an image. Also remember that clipboard behavior may differ between X11 and Wayland.
 
-```text
-http://<laptop-ip>:5000
-```
+## Final thought
 
-### Android says image not found
+This project came from a real everyday problem. I wanted a simple way to share clipboard image and text from Linux to Android without relying on a closed ecosystem or heavy third-party tools. The result is lightweight, local, and practical.
 
-That usually means the Linux clipboard is empty or contains text instead of an image.
-
-Copy an image again and retry.
-
-### Wayland clipboard does not work
-
-Check:
-
-```bash
-command -v wl-paste
-```
-
-### X11 clipboard does not work
-
-Check:
-
-```bash
-command -v xclip
-```
-
-## Project Files
-
-- [README.md](/home/ahnaf-nasim/Pictures/git-pratice/README.md): main setup and usage instructions
-- [PROJECT_GUIDE.md](/home/ahnaf-nasim/Pictures/git-pratice/PROJECT_GUIDE.md): high-level project explanation
-- [clipboard_server.py](/home/ahnaf-nasim/Pictures/git-pratice/apps/linux-clipboard-server/clipboard_server.py): Linux backend and built-in web UI
-- [setup.sh](/home/ahnaf-nasim/Pictures/git-pratice/apps/linux-clipboard-server/setup.sh): dependency installer and firewall helper
-- [apps/android-web-client](/home/ahnaf-nasim/Pictures/git-pratice/apps/android-web-client): standalone web client
-
-## Current Limitation
-
-The current Android path is browser-based, so it previews and downloads images rather than placing them directly into the Android system clipboard as image data. That would require a native Android client.
+If you use Linux and want the same freedom, this setup is a good place to start.
