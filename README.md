@@ -15,9 +15,9 @@ This project runs a small Flask server on Linux and lets your Android phone acce
 
 Start the project:
 
-From the below github link clone the repo in your own machine by using
-i) git clone https://github.com/me-ahnafnasim/Share-Linux-clipboard-to-other-device-without-cable-.git
-ii) move to the path where the clone files are by using cd or pwd command and replace (/home/ahnaf-nasim/Pictures/git-pratice/apps/linux-clipboard-server)
+From the below github link clone the repo in your own machine by using  </br>
+i) git clone https://github.com/me-ahnafnasim/Share-Linux-clipboard-to-other-device-without-cable-.git </br>
+ii) move to the path where the clone files are by using cd or pwd command and replace (/home/ahnaf-nasim/Pictures/git-pratice/apps/linux-clipboard-server)  </br>
 
 ```bash
 cd /home/ahnaf-nasim/Pictures/git-pratice/apps/linux-clipboard-server
