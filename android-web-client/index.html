@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0a7b83">
-  <meta name="description" content="Fetch clipboard images from a Linux laptop over local Wi-Fi.">
+  <meta name="description" content="Fetch clipboard images or text from a Linux laptop over local Wi-Fi.">
   <link rel="manifest" href="./manifest.webmanifest">
   <title>Clipboard Relay Web</title>
   <style>
@@ -161,6 +161,18 @@
       box-shadow: 0 14px 28px rgba(21, 33, 38, 0.16);
     }
 
+    textarea {
+      width: 100%;
+      min-height: 220px;
+      display: none;
+      resize: none;
+      border: none;
+      background: transparent;
+      color: var(--text);
+      font: inherit;
+      line-height: 1.5;
+    }
+
     .meta {
       display: flex;
       justify-content: space-between;
@@ -194,7 +206,7 @@
   <main class="app">
     <section class="hero">
       <h1>Clipboard Relay Web</h1>
-      <div class="subtitle">Open this on Android in Chrome, enter the Linux server URL, fetch the latest clipboard image, then install it with Add to Home Screen.</div>
+      <div class="subtitle">Open this on Android in Chrome, enter the Linux server URL, fetch the latest clipboard content, then install it with Add to Home Screen.</div>
     </section>
 
     <section class="body">
@@ -207,19 +219,19 @@
       </div>
 
       <div class="actions">
-        <button id="fetchBtn" class="primary">Fetch Image</button>
+        <button id="fetchBtn" class="primary">Fetch Clipboard</button>
         <button id="downloadBtn" class="secondary" disabled>Download PNG</button>
       </div>
 
-      <div id="status" class="status">Ready. Save the Linux server URL, then tap Fetch Image.</div>
+      <div id="status" class="status">Ready. Save the Linux server URL, then tap Fetch Clipboard.</div>
 
       <div class="preview-shell">
-        <div id="placeholder" class="placeholder">The latest clipboard image will appear here. Requests add a timestamp so each fetch bypasses browser cache.</div>
+        <div id="placeholder" class="placeholder">The latest clipboard image or text will appear here. Requests add a timestamp so each fetch bypasses browser cache.</div>
         <img id="preview" alt="Clipboard image preview">
+        <textarea id="textPreview" readonly></textarea>
       </div>
 
       <div class="meta">
-        <span id="savedUrlLabel">Saved URL: none</span>
         <span id="updatedAt">Last update: never</span>
       </div>
     </section>
@@ -237,11 +249,12 @@
     const downloadBtn = document.getElementById('downloadBtn');
     const statusEl = document.getElementById('status');
     const preview = document.getElementById('preview');
+    const textPreview = document.getElementById('textPreview');
     const placeholder = document.getElementById('placeholder');
     const updatedAt = document.getElementById('updatedAt');
-    const savedUrlLabel = document.getElementById('savedUrlLabel');
 
     let activeUrl = null;
+    let latestBlob = null;
 
     function setStatus(message, isError = false) {
       statusEl.textContent = message;
@@ -253,11 +266,6 @@
       return localStorage.getItem(storageKey) || '';
     }
 
-    function updateSavedUrlLabel() {
-      const url = getSavedUrl();
-      savedUrlLabel.textContent = `Saved URL: ${url || 'none'}`;
-    }
-
     function saveUrl() {
       const value = serverUrlInput.value.trim().replace(/\/$/, '');
       if (!value) {
@@ -266,11 +274,20 @@
       }
 
       localStorage.setItem(storageKey, value);
-      updateSavedUrlLabel();
       setStatus('Server URL saved.');
     }
 
-    async function fetchImage() {
+    function resetContentState() {
+      latestBlob = null;
+      preview.removeAttribute('src');
+      preview.style.display = 'none';
+      textPreview.value = '';
+      textPreview.style.display = 'none';
+      placeholder.style.display = 'block';
+      downloadBtn.disabled = true;
+    }
+
+    async function fetchClipboard() {
       const baseUrl = getSavedUrl() || serverUrlInput.value.trim().replace(/\/$/, '');
       if (!baseUrl) {
         setStatus('Save the Linux server URL before fetching.', true);
@@ -279,10 +296,10 @@
 
       fetchBtn.disabled = true;
       downloadBtn.disabled = true;
-      setStatus('Fetching clipboard image...');
+      setStatus('Fetching clipboard content...');
 
       try {
-        const response = await fetch(`${baseUrl}/api/image?t=${Date.now()}`, {
+        const response = await fetch(`${baseUrl}/api/clipboard?t=${Date.now()}`, {
           cache: 'no-store',
           headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
         });
@@ -304,21 +321,56 @@
           throw new Error(errorMessage);
         }
 
-        const blob = await response.blob();
-        if (activeUrl) {
-          URL.revokeObjectURL(activeUrl);
+        const payload = await response.json();
+        if (!payload.ok) {
+          throw new Error(payload.error || 'Clipboard fetch failed.');
         }
-        activeUrl = URL.createObjectURL(blob);
-        preview.src = activeUrl;
-        preview.style.display = 'block';
-        placeholder.style.display = 'none';
+
         updatedAt.textContent = `Last update: ${new Date().toLocaleString()}`;
-        downloadBtn.disabled = false;
-        setStatus('Image fetched successfully.');
-      } catch (error) {
+
+        if (payload.kind === 'image') {
+          const imageResponse = await fetch(`${baseUrl}${payload.image_url}`, {
+            cache: 'no-store',
+            headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
+          });
+
+          if (!imageResponse.ok) {
+            let imageError = `Server returned ${imageResponse.status}`;
+            try {
+              const imagePayload = await imageResponse.json();
+              if (imagePayload.error) {
+                imageError = imagePayload.error;
+              }
+            } catch (_) {}
+            throw new Error(imageError);
+          }
+
+          const blob = await imageResponse.blob();
+          if (activeUrl) {
+            URL.revokeObjectURL(activeUrl);
+          }
+          latestBlob = blob;
+          activeUrl = URL.createObjectURL(blob);
+          preview.src = activeUrl;
+          preview.style.display = 'block';
+          textPreview.value = '';
+          textPreview.style.display = 'none';
+          placeholder.style.display = 'none';
+          downloadBtn.disabled = false;
+          setStatus('Image fetched successfully.');
+          return;
+        }
+
+        latestBlob = null;
         preview.removeAttribute('src');
         preview.style.display = 'none';
-        placeholder.style.display = 'block';
+        textPreview.value = payload.text || '';
+        textPreview.style.display = 'block';
+        placeholder.style.display = 'none';
+        downloadBtn.disabled = true;
+        setStatus('Text fetched successfully.');
+      } catch (error) {
+        resetContentState();
         setStatus(error.message || 'Fetch failed.', true);
       } finally {
         fetchBtn.disabled = false;
@@ -339,9 +391,8 @@
     }
 
     serverUrlInput.value = getSavedUrl();
-    updateSavedUrlLabel();
     saveBtn.addEventListener('click', saveUrl);
-    fetchBtn.addEventListener('click', fetchImage);
+    fetchBtn.addEventListener('click', fetchClipboard);
     downloadBtn.addEventListener('click', downloadImage);
 
     if ('serviceWorker' in navigator) {

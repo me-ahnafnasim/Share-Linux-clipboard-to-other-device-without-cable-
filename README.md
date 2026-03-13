@@ -1,183 +1,189 @@
-https://medium.com/@me.ahnafnasim/i-left-the-samsung-ecosystem-and-built-my-own-linux-to-android-clipboard-sharing-tool-1510df919713?postPublishedType=repub
+# Share-Linux-clipboard-to-other-device-without-cable-
 
-# Share Linux Clipboard(image+text) To Other Devices Without Cable
+## Clipboard Relay Setup
 
+The Linux clipboard server is intended to run with `systemd` and listen on port `52341`.
 
-## I Left the Samsung Ecosystem and Built My Own Linux-to-Android Clipboard Sharing Tool
+Current local API shape:
 
-As a Samsung device user, I was deep inside the Samsung ecosystem. To be honest, I did not really enjoy it. On top of that, as a software developer, I work with different frameworks and often need to run projects locally. Over time, my PC started feeling slow, and recently I moved to Linux.
-
-After moving to Linux, I missed one small but very useful feature: clipboard sharing between my laptop and phone, especially for both image and text. I searched for many apps, but I could not find a simple tool that directly shared clipboard images. Some tools can handle text, including KDE Connect in some cases, but I wanted something lightweight, local, and under my control.
-
-So I built my own solution. Today, I am sharing how you can do the same.
-
-## Step 1: How to use it
-
-This project runs a small Flask server on Linux and lets your Android phone access it over local Wi‑Fi.
-
-Start the project:
-
-From the below github link clone the repo in your own machine by using  </br>
-i) git clone https://github.com/me-ahnafnasim/Share-Linux-clipboard-to-other-device-without-cable-.git </br>
-ii) move to the path where the clone files are by using cd or pwd command and replace (/home/ahnaf-nasim/Pictures/git-pratice/apps/linux-clipboard-server)  </br>
-
-```bash
-cd /home/ahnaf-nasim/Pictures/git-pratice/apps/linux-clipboard-server
-chmod +x setup.sh run_server.sh
-./setup.sh
-systemctl --user enable --now clipboard-relay.service
+```text
+http://127.0.0.1:52341/api/clipboard
 ```
 
-Find your PC IP address:
+For another device on the same network:
+
+```text
+http://YOUR_LAPTOP_IP:52341/api/clipboard
+```
+
+## Start The Server
+
+Start the system service:
+
+```bash
+sudo systemctl start clipboard-relay.service
+```
+
+Restart it fresh:
+
+```bash
+sudo systemctl restart clipboard-relay.service
+```
+
+Enable it on boot:
+
+```bash
+sudo systemctl enable clipboard-relay.service
+```
+
+Check service status:
+
+```bash
+sudo systemctl status clipboard-relay.service --no-pager
+```
+
+## Verify The Port
+
+Confirm the server is listening on `52341`:
+
+```bash
+ss -ltnp | grep -E ':52341[[:space:]]'
+```
+
+Test the local API:
+
+```bash
+curl http://127.0.0.1:52341/api/clipboard
+```
+
+Expected success output looks like:
+
+```json
+{"kind":"text","ok":true,"source":"x11","source_mime":"text/plain","text":"..."}
+```
+
+## Find The Laptop IP
+
+Show the current local IP:
 
 ```bash
 hostname -I
 ```
 
-Then open this on your Android phone:
-
-```text
-http://YOUR-PC-IP:5000
-```
-
-Now the flow is simple:
-- copy text or an image on your Linux PC
-- open the page on your phone
-- tap `Fetch Clipboard`
-- if the clipboard has an image, it shows the preview
-- if the clipboard has text, it shows the text
-
-## Step 2: Install it with `systemd`
-
-If you want the tool to keep working in the background, `systemd` is the best option.
-
-Use these commands:
+Show only the first IPv4 address:
 
 ```bash
-cd /home/ahnaf-nasim/Pictures/git-pratice/apps/linux-clipboard-server
-chmod +x setup.sh run_server.sh
-./setup.sh
-mkdir -p ~/.config/systemd/user
-cp /home/ahnaf-nasim/Pictures/git-pratice/apps/linux-clipboard-server/clipboard-relay.service ~/.config/systemd/user/clipboard-relay.service
-systemctl --user daemon-reload
-systemctl --user enable --now clipboard-relay.service
-systemctl --user status clipboard-relay.service --no-pager
+hostname -I | awk '{print $1}'
 ```
 
-Why `systemd`:
-- it starts automatically
-- it keeps the server running in the background
-- it can restart the service if it fails
-
-The downside:
-- clipboard access on Linux can be tricky, especially on Wayland
-- a system-wide service may not be able to access the logged-in user clipboard correctly
-- in practice, a `systemctl --user` service works better for clipboard-based tools
-
-## Step 3: How to check logs and remove it
-
-To check service status:
-
-```bash
-systemctl --user status clipboard-relay.service --no-pager
-```
-
-To see live logs:
-
-```bash
-journalctl --user -u clipboard-relay.service -f
-```
-
-To restart the service after code changes:
-
-```bash
-systemctl --user restart clipboard-relay.service
-```
-
-To stop and remove it:
-
-```bash
-systemctl --user disable --now clipboard-relay.service
-rm ~/.config/systemd/user/clipboard-relay.service
-systemctl --user daemon-reload
-systemctl --user reset-failed
-```
-
-## Step 4: Common errors and how to fix them
-
-### `XDG_RUNTIME_DIR is invalid or not set`
-This usually happens when the service cannot access your Wayland session.
-
-Use a user `systemd` service and add the needed environment values.
-
-Open the service file:
-
-```bash
-nano ~/.config/systemd/user/clipboard-relay.service
-```
-
-Use this content:
-
-```ini
-[Unit]
-Description=Clipboard Relay Server
-After=graphical-session.target network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-WorkingDirectory=/home/ahnaf-nasim/Pictures/git-pratice/apps/linux-clipboard-server
-ExecStart=/home/ahnaf-nasim/Pictures/git-pratice/apps/linux-clipboard-server/run_server.sh
-Restart=always
-RestartSec=3
-Environment=XDG_RUNTIME_DIR=/run/user/1000
-Environment=WAYLAND_DISPLAY=wayland-0
-Environment=CLIPBOARD_SERVER_HOST=0.0.0.0
-Environment=CLIPBOARD_SERVER_PORT=5000
-Environment=CLIPBOARD_SERVER_USE_WAITRESS=1
-Environment=CLIPBOARD_SERVER_THREADS=4
-
-[Install]
-WantedBy=default.target
-```
-
-Then reload and restart:
-
-```bash
-systemctl --user daemon-reload
-systemctl --user restart clipboard-relay.service
-journalctl --user -u clipboard-relay.service -f
-```
-
-You can confirm your values with:
-
-```bash
-echo $XDG_RUNTIME_DIR
-echo $WAYLAND_DISPLAY
-id -u
-```
-
-### `Failed to connect to a Wayland server`
-This is usually the same issue as above. The service is running outside the graphical user session. Running it with `systemctl --user` usually fixes it.
-
-### `Refused to connect`
-Check these:
-- the service is running
-- the phone and laptop are on the same Wi‑Fi
-- you are opening `http://YOUR-PC-IP:5000`
-- your firewall allows port `5000`
+Important: the laptop IP is usually not fixed. It can change after reconnecting to Wi-Fi, rebooting, or changing networks.
 
 Example:
 
-```bash
-sudo ufw allow 5000/tcp
+```text
+http://172.22.83.209:52341/api/clipboard
 ```
 
-### Clipboard shows nothing
-Make sure your PC clipboard really contains text or an image. Also remember that clipboard behavior may differ between X11 and Wayland.
+## Android Or Phone Access
 
-## Final thought
+If local `curl` works on the laptop but the phone cannot connect, check these first:
 
-This project came from a real everyday problem. I wanted a simple way to share clipboard image and text from Linux to Android without relying on a closed ecosystem or heavy third-party tools. The result is lightweight, local, and practical.
+- the phone and laptop are on the same Wi-Fi
+- the phone is using `http://`, not `https://`
+- the phone is using the current laptop IP
+- port `52341` is allowed through the firewall
+- the router is not blocking device-to-device traffic
 
-If you use Linux and want the same freedom, this setup is a good place to start.
+Open the port with `ufw`:
+
+```bash
+sudo ufw allow 52341/tcp
+```
+
+Then test from the phone:
+
+```text
+http://YOUR_LAPTOP_IP:52341/api/clipboard
+```
+
+## Common Problem: Duplicate Server On Port 5000
+
+If you see both `5000` and `52341` listening at the same time, there is usually a second copy of the server running.
+
+Check both ports:
+
+```bash
+ss -ltnp | grep -E ':5000[[:space:]]|:52341[[:space:]]'
+```
+
+In this project, the most common cause was a user-level `systemd` service at:
+
+```text
+~/.config/systemd/user/clipboard-relay.service
+```
+
+That user service was configured for `5000`, while the system service was configured for `52341`.
+
+Disable the user service so only the system service remains:
+
+```bash
+systemctl --user disable --now clipboard-relay.service
+```
+
+Then verify only `52341` is active:
+
+```bash
+ss -ltnp | grep -E ':5000[[:space:]]|:52341[[:space:]]'
+```
+
+## Common Problem: Wayland Or Display Errors
+
+An error like this:
+
+```text
+{"error":"Failed to connect to a Wayland server ... | Error: Can't open display: (null)","ok":false}
+```
+
+means the server is running, but it cannot access the desktop clipboard session.
+
+This usually happens when:
+
+- the service starts without `DISPLAY`
+- `XDG_RUNTIME_DIR` is missing
+- stale Wayland variables point to a socket that does not exist
+
+The launcher script has been updated to provide safer defaults for `systemd` starts, including:
+
+- `XDG_RUNTIME_DIR`
+- `XDG_SESSION_TYPE`
+- `DISPLAY` for X11 sessions
+
+If needed, inspect the active service environment:
+
+```bash
+systemctl show clipboard-relay.service -p Environment
+```
+
+Inspect the final applied service config:
+
+```bash
+systemctl cat clipboard-relay.service
+```
+
+## Quick Recovery
+
+If things stop working, use this sequence:
+
+```bash
+systemctl --user disable --now clipboard-relay.service
+sudo systemctl restart clipboard-relay.service
+ss -ltnp | grep -E ':5000[[:space:]]|:52341[[:space:]]'
+curl http://127.0.0.1:52341/api/clipboard
+```
+
+Healthy state:
+
+- user service on `5000` is disabled
+- system service is active
+- only `52341` is listening
+- local `curl` returns `{"ok":true,...}`

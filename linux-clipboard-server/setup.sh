@@ -3,6 +3,10 @@ set -euo pipefail
 
 PORT="${PORT:-5000}"
 FIREWALL_TOOL="${FIREWALL_TOOL:-auto}"
+INSTALL_SYSTEMD_SERVICE="${INSTALL_SYSTEMD_SERVICE:-1}"
+SERVICE_NAME="${SERVICE_NAME:-clipboard-relay.service}"
+SERVICE_SYSTEM_PATH="/etc/systemd/system/${SERVICE_NAME}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [[ "${EUID}" -ne 0 ]]; then
   SUDO="sudo"
@@ -58,7 +62,28 @@ create_virtualenv() {
   fi
 
   .venv/bin/pip install --upgrade pip
-  .venv/bin/pip install flask pillow
+  .venv/bin/pip install flask pillow waitress
+}
+
+make_launchers_executable() {
+  chmod +x "${SCRIPT_DIR}/run_server.sh"
+}
+
+install_systemd_service() {
+  if [[ "${INSTALL_SYSTEMD_SERVICE}" != "1" ]]; then
+    echo "Skipping systemd service installation."
+    return
+  fi
+
+  if ! command -v systemctl >/dev/null 2>&1; then
+    echo "systemctl is not available. Install the service manually if needed."
+    return
+  fi
+
+  ${SUDO} cp "${SCRIPT_DIR}/${SERVICE_NAME}" "${SERVICE_SYSTEM_PATH}"
+  ${SUDO} systemctl daemon-reload
+  ${SUDO} systemctl enable --now "${SERVICE_NAME}"
+  echo "Installed and started ${SERVICE_NAME}."
 }
 
 configure_ufw() {
@@ -110,10 +135,15 @@ show_ip_help() {
 
 install_dependencies
 create_virtualenv
+make_launchers_executable
 configure_firewall
+install_systemd_service
 show_ip_help
 
 echo
 echo "Setup complete."
-echo "Run the server with:"
-echo "  ./.venv/bin/python clipboard_server.py"
+echo "Primary runtime commands:"
+echo "  sudo systemctl status ${SERVICE_NAME}"
+echo "  journalctl -u ${SERVICE_NAME} -f"
+echo "Manual start without systemd:"
+echo "  ./run_server.sh"
