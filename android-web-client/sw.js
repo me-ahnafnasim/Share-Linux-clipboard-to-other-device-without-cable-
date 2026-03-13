@@ -7,5 +7,5 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', () => {
-  // Network-only. This client should always fetch the latest clipboard image.
+  // Network-only. This client should always fetch the latest clipboard content.
 });

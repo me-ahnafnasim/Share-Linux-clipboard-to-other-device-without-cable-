@@ -16,7 +16,7 @@ INDEX_HTML = """<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Clipboard Image Relay</title>
+  <title>Clipboard Relay</title>
   <style>
     :root {
       --bg: #f3efe5;
@@ -148,6 +148,18 @@ INDEX_HTML = """<!doctype html>
       box-shadow: 0 12px 28px rgba(21, 33, 38, 0.16);
     }
 
+    textarea {
+      width: 100%;
+      min-height: 220px;
+      display: none;
+      resize: none;
+      border: none;
+      background: transparent;
+      color: var(--ink);
+      font: inherit;
+      line-height: 1.5;
+    }
+
     .meta {
       display: flex;
       justify-content: space-between;
@@ -185,27 +197,27 @@ INDEX_HTML = """<!doctype html>
 <body>
   <main class="shell">
     <section class="hero">
-      <h1>Clipboard Image Relay</h1>
-      <p>Fetch the latest clipboard image from your Linux laptop over local Wi-Fi.</p>
+      <h1>Clipboard Relay</h1>
+      <p>Fetch the latest clipboard image or text from your Linux laptop over local Wi-Fi.</p>
     </section>
 
     <section class="content">
       <div class="actions">
-        <button id="fetchBtn" class="primary">Fetch Image</button>
+        <button id="fetchBtn" class="primary">Fetch Clipboard</button>
         <button id="downloadBtn" class="secondary" disabled>Download PNG</button>
       </div>
 
-      <div id="status" class="status">Ready. Tap <strong>Fetch Image</strong> to pull the latest clipboard image.</div>
+      <div id="status" class="status">Ready. Tap <strong>Fetch Clipboard</strong> to pull the latest clipboard content.</div>
 
       <div class="frame">
         <div id="placeholder" class="placeholder">
-          The image preview will appear here. New requests bypass cache automatically.
+          The latest clipboard image or text will appear here. New requests bypass cache automatically.
         </div>
         <img id="preview" alt="Clipboard preview">
+        <textarea id="textPreview" readonly></textarea>
       </div>
 
       <div class="meta">
-        <span id="serverHint">Server: <code id="origin"></code></span>
         <span id="updatedAt">Last update: never</span>
       </div>
     </section>
@@ -219,11 +231,10 @@ INDEX_HTML = """<!doctype html>
     const fetchBtn = document.getElementById('fetchBtn');
     const downloadBtn = document.getElementById('downloadBtn');
     const preview = document.getElementById('preview');
+    const textPreview = document.getElementById('textPreview');
     const placeholder = document.getElementById('placeholder');
     const statusEl = document.getElementById('status');
     const updatedAt = document.getElementById('updatedAt');
-    const originEl = document.getElementById('origin');
-    originEl.textContent = window.location.origin;
 
     let activeUrl = null;
     let latestBlob = null;
@@ -234,13 +245,23 @@ INDEX_HTML = """<!doctype html>
       statusEl.style.background = isError ? 'rgba(255, 232, 232, 0.92)' : 'rgba(255, 255, 255, 0.8)';
     }
 
-    async function fetchImage() {
+    function resetContentState() {
+      latestBlob = null;
+      preview.removeAttribute('src');
+      preview.style.display = 'none';
+      textPreview.value = '';
+      textPreview.style.display = 'none';
+      placeholder.style.display = 'block';
+      downloadBtn.disabled = true;
+    }
+
+    async function fetchClipboard() {
       fetchBtn.disabled = true;
       downloadBtn.disabled = true;
-      setStatus('Fetching clipboard image...');
+      setStatus('Fetching clipboard content...');
 
       try {
-        const response = await fetch(`/api/image?t=${Date.now()}`, {
+        const response = await fetch(`/api/clipboard?t=${Date.now()}`, {
           cache: 'no-store',
           headers: { 'Cache-Control': 'no-cache' }
         });
@@ -256,26 +277,58 @@ INDEX_HTML = """<!doctype html>
           throw new Error(message);
         }
 
-        const blob = await response.blob();
-        latestBlob = blob;
-
-        if (activeUrl) {
-          URL.revokeObjectURL(activeUrl);
+        const payload = await response.json();
+        if (!payload.ok) {
+          throw new Error(payload.error || 'Fetch failed.');
         }
 
-        activeUrl = URL.createObjectURL(blob);
-        preview.src = activeUrl;
-        preview.style.display = 'block';
-        placeholder.style.display = 'none';
-        downloadBtn.disabled = false;
         updatedAt.textContent = `Last update: ${new Date().toLocaleTimeString()}`;
-        setStatus('Image fetched successfully.');
-      } catch (error) {
+
+        if (payload.kind === 'image') {
+          const imageResponse = await fetch(payload.image_url, {
+            cache: 'no-store',
+            headers: { 'Cache-Control': 'no-cache' }
+          });
+
+          if (!imageResponse.ok) {
+            let message = `Server returned ${imageResponse.status}`;
+            try {
+              const imagePayload = await imageResponse.json();
+              if (imagePayload.error) {
+                message = imagePayload.error;
+              }
+            } catch (_) {}
+            throw new Error(message);
+          }
+
+          const blob = await imageResponse.blob();
+          latestBlob = blob;
+          if (activeUrl) {
+            URL.revokeObjectURL(activeUrl);
+          }
+
+          activeUrl = URL.createObjectURL(blob);
+          preview.src = activeUrl;
+          preview.style.display = 'block';
+          textPreview.value = '';
+          textPreview.style.display = 'none';
+          placeholder.style.display = 'none';
+          downloadBtn.disabled = false;
+          setStatus('Image fetched successfully.');
+          return;
+        }
+
         latestBlob = null;
         preview.removeAttribute('src');
         preview.style.display = 'none';
-        placeholder.style.display = 'block';
-        setStatus(error.message || 'Failed to fetch clipboard image.', true);
+        textPreview.value = payload.text || '';
+        textPreview.style.display = 'block';
+        placeholder.style.display = 'none';
+        downloadBtn.disabled = true;
+        setStatus('Text fetched successfully.');
+      } catch (error) {
+        resetContentState();
+        setStatus(error.message || 'Failed to fetch clipboard content.', true);
       } finally {
         fetchBtn.disabled = false;
       }
@@ -291,7 +344,7 @@ INDEX_HTML = """<!doctype html>
       anchor.remove();
     }
 
-    fetchBtn.addEventListener('click', fetchImage);
+    fetchBtn.addEventListener('click', fetchClipboard);
     downloadBtn.addEventListener('click', downloadImage);
   </script>
 </body>
@@ -301,9 +354,11 @@ INDEX_HTML = """<!doctype html>
 
 @dataclass
 class ClipboardPayload:
-    png_bytes: bytes
+    kind: str
     source: str
     mime_type: str
+    png_bytes: bytes | None = None
+    text: str | None = None
 
 
 class ClipboardError(RuntimeError):
@@ -350,6 +405,24 @@ def choose_wayland_mime() -> Optional[str]:
     return None
 
 
+def choose_wayland_text_mime() -> Optional[str]:
+    list_result = run_command(["wl-paste", "--list-types"])
+    if list_result.returncode != 0:
+        stderr = list_result.stderr.decode("utf-8", errors="ignore").strip()
+        raise ClipboardError(stderr or "wl-paste could not inspect clipboard types.")
+
+    targets = {
+        line.strip()
+        for line in list_result.stdout.decode("utf-8", errors="ignore").splitlines()
+        if line.strip()
+    }
+
+    for mime in ("text/plain;charset=utf-8", "text/plain", "UTF8_STRING", "STRING", "TEXT"):
+        if mime in targets:
+            return mime
+    return None
+
+
 def choose_x11_mime() -> Optional[str]:
     list_result = run_command(["xclip", "-selection", "clipboard", "-t", "TARGETS", "-o"])
     if list_result.returncode != 0:
@@ -366,6 +439,10 @@ def choose_x11_mime() -> Optional[str]:
         if mime in targets:
             return mime
     return None
+
+
+def x11_has_image_target() -> bool:
+    return choose_x11_mime() is not None
 
 
 def convert_to_png(image_bytes: bytes, mime_type: str) -> bytes:
@@ -400,6 +477,7 @@ def read_wayland_clipboard() -> ClipboardPayload:
         raise ClipboardError("Clipboard image is empty.")
 
     return ClipboardPayload(
+        kind="image",
         png_bytes=convert_to_png(result.stdout, mime_type),
         source="wayland",
         mime_type=mime_type,
@@ -423,9 +501,59 @@ def read_x11_clipboard() -> ClipboardPayload:
         raise ClipboardError("Clipboard image is empty.")
 
     return ClipboardPayload(
+        kind="image",
         png_bytes=convert_to_png(result.stdout, mime_type),
         source="x11",
         mime_type=mime_type,
+    )
+
+
+def read_wayland_text_clipboard() -> ClipboardPayload:
+    if not command_exists("wl-paste"):
+        raise ClipboardError("Wayland clipboard support requires wl-clipboard (`wl-paste`).")
+
+    mime_type = choose_wayland_text_mime()
+    if not mime_type:
+        raise ClipboardError("Clipboard does not currently contain text.")
+
+    result = run_command(["wl-paste", "--no-newline", "--type", mime_type])
+    if result.returncode != 0:
+        stderr = result.stderr.decode("utf-8", errors="ignore").strip()
+        raise ClipboardError(stderr or "Failed to read clipboard text from Wayland.")
+
+    text = result.stdout.decode("utf-8", errors="replace")
+    if not text.strip():
+        raise ClipboardError("Clipboard text is empty.")
+
+    return ClipboardPayload(
+        kind="text",
+        source="wayland",
+        mime_type=mime_type,
+        text=text,
+    )
+
+
+def read_x11_text_clipboard() -> ClipboardPayload:
+    if not command_exists("xclip"):
+        raise ClipboardError("X11 clipboard support requires xclip.")
+
+    if x11_has_image_target():
+        raise ClipboardError("Clipboard currently contains an image, not text.")
+
+    result = run_command(["xclip", "-selection", "clipboard", "-o"])
+    if result.returncode != 0:
+        stderr = result.stderr.decode("utf-8", errors="ignore").strip()
+        raise ClipboardError(stderr or "Failed to read clipboard text from X11.")
+
+    text = result.stdout.decode("utf-8", errors="replace")
+    if not text.strip():
+        raise ClipboardError("Clipboard text is empty.")
+
+    return ClipboardPayload(
+        kind="text",
+        source="x11",
+        mime_type="text/plain",
+        text=text,
     )
 
 
@@ -442,6 +570,42 @@ def load_clipboard_image() -> ClipboardPayload:
         backends = [read_wayland_clipboard, read_x11_clipboard]
 
     for reader in backends:
+        try:
+            return reader()
+        except ClipboardError as exc:
+            errors.append(str(exc))
+
+    unique_errors = " | ".join(dict.fromkeys(errors))
+    raise ClipboardError(unique_errors or "No clipboard backend is available.")
+
+
+def load_clipboard_payload() -> ClipboardPayload:
+    backend = detect_session_backend()
+    errors = []
+
+    if backend == "wayland":
+        readers = [
+            read_wayland_clipboard,
+            read_wayland_text_clipboard,
+            read_x11_clipboard,
+            read_x11_text_clipboard,
+        ]
+    elif backend == "x11":
+        readers = [
+            read_x11_clipboard,
+            read_x11_text_clipboard,
+            read_wayland_clipboard,
+            read_wayland_text_clipboard,
+        ]
+    else:
+        readers = [
+            read_wayland_clipboard,
+            read_wayland_text_clipboard,
+            read_x11_clipboard,
+            read_x11_text_clipboard,
+        ]
+
+    for reader in readers:
         try:
             return reader()
         except ClipboardError as exc:
@@ -475,7 +639,7 @@ def get_clipboard_image() -> Response:
         return jsonify({"error": f"Unexpected server error: {exc}"}), 500
 
     return Response(
-        payload.png_bytes,
+        payload.png_bytes or b"",
         mimetype="image/png",
         headers={
             "Content-Disposition": 'inline; filename="clipboard.png"',
@@ -485,16 +649,50 @@ def get_clipboard_image() -> Response:
     )
 
 
-@app.route("/api/status")
-def status() -> Response:
+@app.route("/api/clipboard")
+def get_clipboard_payload() -> Response:
     try:
-        payload = load_clipboard_image()
+        payload = load_clipboard_payload()
+    except ClipboardError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 404
+    except Exception as exc:  # pragma: no cover
+        app.logger.exception("Unexpected clipboard payload failure")
+        return jsonify({"ok": False, "error": f"Unexpected server error: {exc}"}), 500
+
+    if payload.kind == "image":
         return jsonify(
             {
                 "ok": True,
+                "kind": "image",
+                "image_url": f"/api/image?t={int(os.times().elapsed * 1000)}",
+                "source": payload.source,
+                "source_mime": payload.mime_type,
+            }
+        )
+
+    return jsonify(
+        {
+            "ok": True,
+            "kind": "text",
+            "text": payload.text,
+            "source": payload.source,
+            "source_mime": payload.mime_type,
+        }
+    )
+
+
+@app.route("/api/status")
+def status() -> Response:
+    try:
+        payload = load_clipboard_payload()
+        return jsonify(
+            {
+                "ok": True,
+                "kind": payload.kind,
                 "backend": payload.source,
                 "source_mime": payload.mime_type,
-                "size_bytes": len(payload.png_bytes),
+                "size_bytes": len(payload.png_bytes) if payload.png_bytes else None,
+                "text_length": len(payload.text) if payload.text else None,
             }
         )
     except ClipboardError as exc:
@@ -508,6 +706,18 @@ def main() -> int:
     host = os.environ.get("CLIPBOARD_SERVER_HOST", "0.0.0.0")
     port = int(os.environ.get("CLIPBOARD_SERVER_PORT", "5000"))
     debug = os.environ.get("CLIPBOARD_SERVER_DEBUG", "").lower() in {"1", "true", "yes"}
+    use_waitress = os.environ.get("CLIPBOARD_SERVER_USE_WAITRESS", "1").lower() not in {"0", "false", "no"}
+
+    if use_waitress and not debug:
+        try:
+            from waitress import serve
+        except ImportError:
+            app.logger.warning("waitress is not installed; falling back to Flask development server")
+            app.run(host=host, port=port, debug=debug)
+        else:
+            threads = int(os.environ.get("CLIPBOARD_SERVER_THREADS", "4"))
+            serve(app, host=host, port=port, threads=threads)
+        return 0
 
     app.run(host=host, port=port, debug=debug)
     return 0

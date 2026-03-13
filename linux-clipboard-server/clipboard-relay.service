@@ -1,0 +1,19 @@
+[Unit]
+Description=Clipboard Relay Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ahnaf-nasim/Pictures/git-pratice/apps/linux-clipboard-server
+ExecStart=/home/ahnaf-nasim/Pictures/git-pratice/apps/linux-clipboard-server/run_server.sh
+Restart=always
+RestartSec=3
+User=ahnaf-nasim
+Environment=CLIPBOARD_SERVER_HOST=0.0.0.0
+Environment=CLIPBOARD_SERVER_PORT=5000
+Environment=CLIPBOARD_SERVER_USE_WAITRESS=1
+Environment=CLIPBOARD_SERVER_THREADS=4
+
+[Install]
+WantedBy=multi-user.target
