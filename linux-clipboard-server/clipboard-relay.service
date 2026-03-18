@@ -5,11 +5,11 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/ahnaf-nasim/Pictures/git-pratice/apps/linux-clipboard-server
-ExecStart=/home/ahnaf-nasim/Pictures/git-pratice/apps/linux-clipboard-server/run_server.sh
+WorkingDirectory=/home/ahnafnasim/projects/linux-clipboard-server
+ExecStart=/home/ahnafnasim/projects/linux-clipboard-server/run_server.sh
 Restart=always
 RestartSec=3
-User=ahnaf-nasim
+User=ahnafnasim
 Environment=CLIPBOARD_SERVER_HOST=0.0.0.0
 Environment=CLIPBOARD_SERVER_PORT=5000
 Environment=CLIPBOARD_SERVER_USE_WAITRESS=1
