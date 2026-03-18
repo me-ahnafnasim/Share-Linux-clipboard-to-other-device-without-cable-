@@ -47,7 +47,7 @@ INDEX_HTML = """<!doctype html>
     }
 
     .shell {
-      width: min(100%, 720px);
+      width: min(100%, 721px);
       background: var(--panel);
       border: 1px solid var(--border);
       border-radius: var(--radius);
